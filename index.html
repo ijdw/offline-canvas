@@ -7,26 +7,33 @@
     <link rel="icon" type="image/png" href="offline_canvas.png">
     
     <style>
+        /* Default to clean geometric font */
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
-            overflow: hidden; font-family: sans-serif; background-color: #e0e0e0;
+            overflow: hidden; background-color: #e0e0e0;
+            font-family: 'Century Gothic', Avenir, 'Helvetica Neue', sans-serif;
+            transition: font-family 0.2s;
+        }
+
+        /* Comic Sans Toggle Class */
+        body.comic-font {
+            font-family: 'Comic Sans MS', 'Comic Sans', 'Marker Felt', cursive !important;
         }
 
         /* --- UI & Toolbar --- */
         #toolbar-wrapper {
             position: fixed; top: 15px; left: 15px; z-index: 10000;
-            display: flex; align-items: center; gap: 10px;
+            display: flex; align-items: flex-start; gap: 10px;
             transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        #toolbar-wrapper.collapsed {
-            transform: translateX(calc(-100% + 45px));
-        }
+        #toolbar-wrapper.collapsed { transform: translateX(calc(-100% + 45px)); }
+
+        #toolbar-container { display: flex; flex-direction: column; gap: 5px; position: relative; }
 
         #toolbar {
             background: rgba(255, 255, 255, 0.95); padding: 10px 15px; 
             border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             display: flex; gap: 10px; align-items: center; backdrop-filter: blur(5px);
-            flex-shrink: 0;
         }
 
         #toggle-btn {
@@ -36,11 +43,25 @@
         }
         #toggle-btn:hover { background: #f0f0f0; }
 
-        button, input[type="number"] { padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; background: white; }
+        button, input[type="number"] { padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; background: white; font-family: inherit; }
         button:hover { background: #f0f0f0; }
         input[type="number"] { width: 45px; cursor: text; }
-        .color-btn { width: 24px; height: 24px; border-radius: 50%; border: 1px solid #aaa; padding: 0; }
         .divider { width: 1px; height: 20px; background: #ccc; margin: 0 2px; }
+
+        /* --- 7x7 Color Popup --- */
+        #color-btn { display: flex; align-items: center; gap: 6px; font-weight: bold; }
+        #current-color-indicator { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #aaa; background: #fff9b1; }
+        
+        #palette-popup {
+            display: none; position: absolute; top: 100%; left: 160px; margin-top: 5px;
+            background: rgba(255, 255, 255, 0.95); padding: 8px; border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2); grid-template-columns: repeat(7, 1fr); gap: 4px;
+        }
+        #palette-popup.show { display: grid; }
+        .palette-swatch {
+            width: 24px; height: 24px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.1); cursor: pointer;
+        }
+        .palette-swatch:hover { transform: scale(1.1); border-color: rgba(0,0,0,0.5); }
 
         /* --- Canvas --- */
         #viewport { width: 100vw; height: 100vh; cursor: grab; position: relative; overflow: hidden; }
@@ -53,33 +74,41 @@
 
         /* --- Notes --- */
         .note {
-            position: absolute; background: #fff9b1; box-shadow: 3px 3px 10px rgba(0,0,0,0.2);
+            position: absolute; background: #fff9b1; box-shadow: 3px 3px 10px rgba(0,0,0,0.15);
             min-width: 200px; min-height: 100px; border-radius: 6px; display: flex; flex-direction: column;
             transition: box-shadow 0.2s; resize: both; overflow: auto;
-            
-            /* Invisible Scrollbars */
-            scrollbar-width: none; /* Firefox */
-            -ms-overflow-style: none; /* IE/Edge */
+            scrollbar-width: none; -ms-overflow-style: none;
         }
-        /* Invisible Scrollbars (Chrome/Safari/Edge) */
         .note::-webkit-scrollbar { width: 0px; height: 0px; background: transparent; }
-
-        .note:focus-within { box-shadow: 5px 5px 15px rgba(0,0,0,0.3); }
+        
+        /* The Active Note glow */
+        .note.active-note { box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.5), 5px 5px 20px rgba(0,0,0,0.2); }
         .note.pinned { border: 2px solid #aaa; }
-        .note.pinned .note-header { background: rgba(0,0,0,0.02); cursor: default; }
 
+        /* Invisible Header */
         .note-header {
-            height: 22px; background: rgba(0,0,0,0.08); border-top-left-radius: 6px; border-top-right-radius: 6px;
-            cursor: grab; display: flex; justify-content: space-between; align-items: center; padding: 2px 8px; user-select: none;
+            height: 24px; background: transparent; border-top-left-radius: 6px; border-top-right-radius: 6px;
+            cursor: grab; display: flex; justify-content: space-between; align-items: center; padding: 4px 8px 0 8px; user-select: none;
         }
         .note-header:active { cursor: grabbing; }
         
+        /* Hide controls until hovered */
+        .note-header > div, .note-header > button { opacity: 0; transition: opacity 0.2s ease; }
+        .note:hover .note-header > div, .note:hover .note-header > button { opacity: 1; }
+        
+        /* Failsafe for mobile/touch screens where hover doesn't exist */
+        @media (pointer: coarse) {
+            .note-header > div, .note-header > button { opacity: 0.6; }
+        }
+
         .header-controls { display: flex; gap: 5px; }
+        .drag-indicator { flex-grow: 1; text-align: center; color: rgba(0,0,0,0.3); font-weight: bold; letter-spacing: 2px; line-height: 1; font-size: 14px;}
+        
         .icon-btn { background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 0 2px; }
         .icon-btn:hover { opacity: 0.7; }
         .delete-btn { color: #888; font-weight: bold; font-size: 12px; transition: color 0.2s; }
 
-        .note-text { padding: 10px; outline: none; cursor: text; flex-grow: 1; min-height: 50px; line-height: 1.5; }
+        .note-text { font-family: inherit; padding: 5px 12px 12px 12px; outline: none; cursor: text; flex-grow: 1; min-height: 50px; line-height: 1.5; }
         .note-text input[type="checkbox"] { cursor: pointer; transform: scale(1.2); margin-right: 6px; }
 
         /* --- Minimap --- */
@@ -97,24 +126,31 @@
     <input type="file" id="fileImport" accept=".json" style="display: none;" onchange="importNotes(event)">
 
     <div id="toolbar-wrapper">
-        <div id="toolbar">
-            <button onclick="addNote()">➕ Note</button>
-            <div class="divider"></div>
+        <div id="toolbar-container">
+            <div id="toolbar">
+                <button onclick="addNote()">➕ Note</button>
+                <div class="divider"></div>
+                
+                <button id="font-toggle-btn" onclick="toggleFont()">🅰️ Font</button>
+                
+                <div class="divider"></div>
+                <label style="font-size: 14px;">Size:</label>
+                <input type="number" id="fontSizePicker" value="18" min="8" max="72" title="Font Size">
+                
+                <div class="divider"></div>
+                
+                <button id="color-btn" onclick="togglePalette()">
+                    🎨 Color <div id="current-color-indicator"></div>
+                </button>
+
+                <div class="divider"></div>
+                <button onclick="document.getElementById('fileImport').click()">📂 Import</button>
+                <button onclick="exportNotes()">📤 Export</button>
+                <button onclick="clearBoard()">🗑️ Clear</button>
+            </div>
             
-            <label style="font-size: 14px;">Size:</label>
-            <input type="number" id="fontSizePicker" value="18" min="8" max="72" title="Font Size">
-            <span style="font-size: 12px; color: #666;">px</span>
-
-            <div class="divider"></div>
-            <button class="color-btn" style="background: #fff9b1;" onclick="setNextColor('#fff9b1')"></button>
-            <button class="color-btn" style="background: #b1ffc2;" onclick="setNextColor('#b1ffc2')"></button>
-            <button class="color-btn" style="background: #b1e0ff;" onclick="setNextColor('#b1e0ff')"></button>
-            <button class="color-btn" style="background: #ffb1e8;" onclick="setNextColor('#ffb1e8')"></button>
-
-            <div class="divider"></div>
-            <button onclick="document.getElementById('fileImport').click()">📂 Import</button>
-            <button onclick="exportNotes()">📤 Export</button>
-            <button onclick="clearBoard()">🗑️ Clear</button>
+            <!-- The 7x7 Color Grid -->
+            <div id="palette-popup"></div>
         </div>
         <button id="toggle-btn" onclick="toggleToolbar()">❮</button>
     </div>
@@ -126,29 +162,71 @@
         const canvas = document.getElementById('canvas');
         const viewport = document.getElementById('viewport');
         const fontSizePicker = document.getElementById('fontSizePicker');
+        const palettePopup = document.getElementById('palette-popup');
+        const colorIndicator = document.getElementById('current-color-indicator');
         
         let scale = 1, panX = 0, panY = 0;
         let isPanning = false, startPanX = 0, startPanY = 0;
-        let zIndexCounter = 10, spawnOffset = 0, nextNoteColor = '#fff9b1';
+        let zIndexCounter = 10, spawnOffset = 0;
+        
+        let nextNoteColor = '#fff9b1';
         let draggedNote = null;
+        let activeNote = null;
+        let useComicSans = false;
 
-        function debounce(func, wait) {
-            let timeout;
-            return function(...args) {
-                clearTimeout(timeout);
-                timeout = setTimeout(() => func.apply(this, args), wait);
-            };
+        // --- Generate 7x7 Rainbow Palette Dynamically ---
+        function generatePalette() {
+            // Hues: Red, Orange, Yellow, Green, Blue, Indigo, Purple
+            const hues = [0, 30, 50, 120, 200, 250, 290];
+            const lightness = [95, 90, 85, 80, 75, 70, 65]; // Pastels to deep tones
+            
+            hues.forEach(h => {
+                lightness.forEach(l => {
+                    const color = `hsl(${h}, 85%, ${l}%)`;
+                    const swatch = document.createElement('div');
+                    swatch.className = 'palette-swatch';
+                    swatch.style.backgroundColor = color;
+                    swatch.onclick = () => selectColor(color);
+                    palettePopup.appendChild(swatch);
+                });
+            });
         }
-        const debouncedSave = debounce(() => { saveBoard(); updateMinimap(); }, 400);
+        generatePalette();
+
+        function togglePalette() {
+            palettePopup.classList.toggle('show');
+        }
+
+        // Apply color to the active note, or save as default for the next one
+        function selectColor(color) {
+            nextNoteColor = color;
+            colorIndicator.style.backgroundColor = color;
+            if (activeNote) {
+                activeNote.style.backgroundColor = color;
+                saveBoard();
+            }
+            palettePopup.classList.remove('show');
+        }
+
+        function toggleFont() {
+            useComicSans = !useComicSans;
+            document.body.classList.toggle('comic-font', useComicSans);
+            saveBoard();
+        }
 
         function toggleToolbar() {
             const wrapper = document.getElementById('toolbar-wrapper');
             const btn = document.getElementById('toggle-btn');
             wrapper.classList.toggle('collapsed');
             btn.innerText = wrapper.classList.contains('collapsed') ? '❯' : '❮';
+            palettePopup.classList.remove('show'); // hide palette if toolbar slides away
         }
 
-        function setNextColor(color) { nextNoteColor = color; }
+        function debounce(func, wait) {
+            let timeout;
+            return function(...args) { clearTimeout(timeout); timeout = setTimeout(() => func.apply(this, args), wait); };
+        }
+        const debouncedSave = debounce(() => { saveBoard(); updateMinimap(); }, 400);
 
         let rAF_Transform;
         function queueCanvasTransform() {
@@ -159,9 +237,13 @@
             });
         }
 
+        // --- Interaction & Tracking Active Note ---
         viewport.addEventListener('mousedown', (e) => {
+            // If we click the background canvas, clear the active note
             if (e.target === viewport || e.target === canvas) {
                 isPanning = true; startPanX = e.clientX - panX; startPanY = e.clientY - panY;
+                if (activeNote) { activeNote.classList.remove('active-note'); activeNote = null; }
+                palettePopup.classList.remove('show');
             }
         });
         
@@ -177,6 +259,7 @@
             queueCanvasTransform();
         }, { passive: false });
 
+        // --- Note Engine ---
         function addNote(data = {}) {
             spawnOffset = (spawnOffset + 30) % 300;
             
@@ -189,17 +272,31 @@
             note.style.backgroundColor = data.color || nextNoteColor;
             note.style.zIndex = data.zIndex || ++zIndexCounter;
 
-            note.addEventListener('mousedown', () => { note.style.zIndex = ++zIndexCounter; });
+            // Make note Active on click
+            note.addEventListener('mousedown', () => { 
+                note.style.zIndex = ++zIndexCounter; 
+                if (activeNote) activeNote.classList.remove('active-note');
+                activeNote = note;
+                note.classList.add('active-note');
+                
+                // Update toolbar indicator to match clicked note
+                colorIndicator.style.backgroundColor = note.style.backgroundColor;
+            });
 
+            // The Invisible Header
             const header = document.createElement('div');
             header.className = 'note-header';
             
+            const emptySpace = document.createElement('div'); 
+            emptySpace.style.width = '40px'; // Balance the right controls
+            
+            const dragDots = document.createElement('div');
+            dragDots.className = 'drag-indicator';
+            dragDots.innerText = '⋮⋮';
+
             const pinBtn = document.createElement('button');
             pinBtn.className = 'icon-btn'; pinBtn.innerText = '📌';
-            pinBtn.title = 'Pin/Unpin Note';
-            pinBtn.onclick = (e) => {
-                e.stopPropagation(); note.classList.toggle('pinned'); saveBoard();
-            };
+            pinBtn.onclick = (e) => { e.stopPropagation(); note.classList.toggle('pinned'); saveBoard(); };
 
             const delBtn = document.createElement('button');
             delBtn.className = 'icon-btn delete-btn'; delBtn.innerText = '✕';
@@ -207,17 +304,19 @@
             
             delBtn.onclick = (e) => {
                 e.stopPropagation();
-                if (confirmDelete) { note.remove(); saveBoard(); updateMinimap(); } 
+                if (confirmDelete) { note.remove(); if(activeNote === note) activeNote = null; saveBoard(); updateMinimap(); } 
                 else {
-                    confirmDelete = true;
-                    delBtn.style.color = 'red'; delBtn.innerText = 'Sure?';
+                    confirmDelete = true; delBtn.style.color = 'red'; delBtn.innerText = 'Sure?';
                     setTimeout(() => { confirmDelete = false; delBtn.style.color = '#888'; delBtn.innerText = '✕'; }, 2500);
                 }
             };
 
             const controls = document.createElement('div'); controls.className = 'header-controls';
             controls.appendChild(pinBtn); controls.appendChild(delBtn);
-            header.appendChild(document.createElement('div')); header.appendChild(controls);
+            
+            header.appendChild(emptySpace);
+            header.appendChild(dragDots);
+            header.appendChild(controls);
 
             header.addEventListener('mousedown', (e) => {
                 if (!note.classList.contains('pinned')) { draggedNote = note; note.style.zIndex = ++zIndexCounter; }
@@ -225,8 +324,6 @@
 
             const content = document.createElement('div');
             content.className = 'note-text'; content.contentEditable = true;
-            
-            // Replaced the placeholder hint with a completely empty string
             content.innerHTML = data.text !== undefined ? data.text : "";
             content.style.fontSize = data.fontSize || (fontSizePicker.value + 'px');
             
@@ -265,10 +362,7 @@
             note.appendChild(header); note.appendChild(content);
             canvas.appendChild(note); updateMinimap();
             
-            // Automatically focus the new note so you can type instantly
-            if (data.text === undefined) {
-                content.focus();
-            }
+            if (data.text === undefined) content.focus();
         }
 
         let rAF_Drag;
@@ -317,7 +411,7 @@
                 };
             });
             
-            const dataStr = JSON.stringify({ notes, panX, panY, scale, zIndexCounter });
+            const dataStr = JSON.stringify({ notes, panX, panY, scale, zIndexCounter, useComicSans });
             const sizeMB = (dataStr.length * 2) / (1024 * 1024);
             if (sizeMB > 4.5) alert("Warning: Data is approaching the browser limit. Please Export your notes to avoid data loss.");
             
@@ -330,6 +424,13 @@
                 const data = JSON.parse(saved);
                 panX = data.panX || 0; panY = data.panY || 0; scale = data.scale || 1;
                 zIndexCounter = data.zIndexCounter || 10;
+                
+                // Load font preference
+                if (data.useComicSans !== undefined) {
+                    useComicSans = data.useComicSans;
+                    document.body.classList.toggle('comic-font', useComicSans);
+                }
+
                 data.notes.forEach(n => addNote(n));
                 queueCanvasTransform();
             }
