@@ -19,7 +19,6 @@
             transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
         #toolbar-wrapper.collapsed {
-            /* Slides left by its full width, leaving exactly 45px for the toggle button */
             transform: translateX(calc(-100% + 45px));
         }
 
@@ -57,7 +56,14 @@
             position: absolute; background: #fff9b1; box-shadow: 3px 3px 10px rgba(0,0,0,0.2);
             min-width: 200px; min-height: 100px; border-radius: 6px; display: flex; flex-direction: column;
             transition: box-shadow 0.2s; resize: both; overflow: auto;
+            
+            /* Invisible Scrollbars */
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* IE/Edge */
         }
+        /* Invisible Scrollbars (Chrome/Safari/Edge) */
+        .note::-webkit-scrollbar { width: 0px; height: 0px; background: transparent; }
+
         .note:focus-within { box-shadow: 5px 5px 15px rgba(0,0,0,0.3); }
         .note.pinned { border: 2px solid #aaa; }
         .note.pinned .note-header { background: rgba(0,0,0,0.02); cursor: default; }
@@ -88,7 +94,6 @@
 </head>
 <body>
 
-    <!-- Hidden File Input for Import -->
     <input type="file" id="fileImport" accept=".json" style="display: none;" onchange="importNotes(event)">
 
     <div id="toolbar-wrapper">
@@ -127,7 +132,6 @@
         let zIndexCounter = 10, spawnOffset = 0, nextNoteColor = '#fff9b1';
         let draggedNote = null;
 
-        // Optimization: Debounce for saving during typing
         function debounce(func, wait) {
             let timeout;
             return function(...args) {
@@ -146,7 +150,6 @@
 
         function setNextColor(color) { nextNoteColor = color; }
 
-        // --- Optimized Navigation (requestAnimationFrame) ---
         let rAF_Transform;
         function queueCanvasTransform() {
             if (rAF_Transform) cancelAnimationFrame(rAF_Transform);
@@ -174,7 +177,6 @@
             queueCanvasTransform();
         }, { passive: false });
 
-        // --- Note Engine ---
         function addNote(data = {}) {
             spawnOffset = (spawnOffset + 30) % 300;
             
@@ -223,10 +225,11 @@
 
             const content = document.createElement('div');
             content.className = 'note-text'; content.contentEditable = true;
-            content.innerHTML = data.text || "Type here...<br><br><i>Hint: Type '[] ' for a checkbox!</i>";
+            
+            // Replaced the placeholder hint with a completely empty string
+            content.innerHTML = data.text !== undefined ? data.text : "";
             content.style.fontSize = data.fontSize || (fontSizePicker.value + 'px');
             
-            // Rich text commands
             content.addEventListener('keydown', (e) => {
                 if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
                     e.preventDefault(); document.execCommand('backColor', false, 'yellow');
@@ -246,7 +249,7 @@
                         document.execCommand('insertUnorderedList');
                     }
                 }
-                debouncedSave(); // Fast typing optimized
+                debouncedSave(); 
             });
 
             content.addEventListener('change', (e) => {
@@ -261,9 +264,13 @@
 
             note.appendChild(header); note.appendChild(content);
             canvas.appendChild(note); updateMinimap();
+            
+            // Automatically focus the new note so you can type instantly
+            if (data.text === undefined) {
+                content.focus();
+            }
         }
 
-        // --- Optimized Global Dragging ---
         let rAF_Drag;
         window.addEventListener('mousemove', (e) => {
             if (isPanning) { 
@@ -280,7 +287,6 @@
             }
         });
 
-        // --- Minimap Render ---
         function updateMinimap() {
             document.querySelectorAll('.minimap-note').forEach(n => n.remove());
             const mapScale = 200 / 10000;
@@ -301,7 +307,6 @@
             vport.style.top = `${(-panY / scale) * mapScale}px`;
         }
 
-        // --- Save, Load, Import, Export ---
         function saveBoard() {
             const notes = Array.from(document.querySelectorAll('.note')).map(note => {
                 const textEl = note.querySelector('.note-text');
@@ -313,8 +318,6 @@
             });
             
             const dataStr = JSON.stringify({ notes, panX, panY, scale, zIndexCounter });
-            
-            // Storage Safeguard: Check if approaching 5MB limit
             const sizeMB = (dataStr.length * 2) / (1024 * 1024);
             if (sizeMB > 4.5) alert("Warning: Data is approaching the browser limit. Please Export your notes to avoid data loss.");
             
@@ -358,7 +361,7 @@
                         }
                     } else alert("Invalid file format");
                 } catch (err) { alert("Error reading file."); }
-                event.target.value = ''; // Reset input
+                event.target.value = '';
             };
             reader.readAsText(file);
         }
