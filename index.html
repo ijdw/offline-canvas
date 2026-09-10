@@ -174,11 +174,9 @@
         let activeNote = null;
         let useComicSans = false;
 
-        // --- Generate 7x7 Rainbow Palette Dynamically ---
         function generatePalette() {
-            // Hues: Red, Orange, Yellow, Green, Blue, Indigo, Purple
             const hues = [0, 30, 50, 120, 200, 250, 290];
-            const lightness = [95, 90, 85, 80, 75, 70, 65]; // Pastels to deep tones
+            const lightness = [95, 90, 85, 80, 75, 70, 65]; 
             
             hues.forEach(h => {
                 lightness.forEach(l => {
@@ -193,11 +191,8 @@
         }
         generatePalette();
 
-        function togglePalette() {
-            palettePopup.classList.toggle('show');
-        }
+        function togglePalette() { palettePopup.classList.toggle('show'); }
 
-        // Apply color to the active note, or save as default for the next one
         function selectColor(color) {
             nextNoteColor = color;
             colorIndicator.style.backgroundColor = color;
@@ -219,7 +214,7 @@
             const btn = document.getElementById('toggle-btn');
             wrapper.classList.toggle('collapsed');
             btn.innerText = wrapper.classList.contains('collapsed') ? '❯' : '❮';
-            palettePopup.classList.remove('show'); // hide palette if toolbar slides away
+            palettePopup.classList.remove('show');
         }
 
         function debounce(func, wait) {
@@ -237,9 +232,7 @@
             });
         }
 
-        // --- Interaction & Tracking Active Note ---
         viewport.addEventListener('mousedown', (e) => {
-            // If we click the background canvas, clear the active note
             if (e.target === viewport || e.target === canvas) {
                 isPanning = true; startPanX = e.clientX - panX; startPanY = e.clientY - panY;
                 if (activeNote) { activeNote.classList.remove('active-note'); activeNote = null; }
@@ -259,7 +252,6 @@
             queueCanvasTransform();
         }, { passive: false });
 
-        // --- Note Engine ---
         function addNote(data = {}) {
             spawnOffset = (spawnOffset + 30) % 300;
             
@@ -272,23 +264,19 @@
             note.style.backgroundColor = data.color || nextNoteColor;
             note.style.zIndex = data.zIndex || ++zIndexCounter;
 
-            // Make note Active on click
             note.addEventListener('mousedown', () => { 
                 note.style.zIndex = ++zIndexCounter; 
                 if (activeNote) activeNote.classList.remove('active-note');
                 activeNote = note;
                 note.classList.add('active-note');
-                
-                // Update toolbar indicator to match clicked note
                 colorIndicator.style.backgroundColor = note.style.backgroundColor;
             });
 
-            // The Invisible Header
             const header = document.createElement('div');
             header.className = 'note-header';
             
             const emptySpace = document.createElement('div'); 
-            emptySpace.style.width = '40px'; // Balance the right controls
+            emptySpace.style.width = '40px'; 
             
             const dragDots = document.createElement('div');
             dragDots.className = 'drag-indicator';
@@ -333,15 +321,22 @@
                 }
             });
 
+            // UPDATED: More robust Markdown scanning!
             content.addEventListener('keyup', (e) => {
                 if (e.key === ' ') {
                     const sel = window.getSelection();
                     if (!sel.anchorNode || sel.anchorNode.nodeType !== Node.TEXT_NODE) return;
-                    const text = sel.anchorNode.textContent;
-                    if (text === '[] ') {
+                    
+                    // Look directly behind the cursor
+                    const text = sel.anchorNode.textContent.slice(0, sel.anchorOffset);
+                    
+                    if (text.endsWith('[] ')) {
                         document.execCommand('delete'); document.execCommand('delete'); document.execCommand('delete');
                         document.execCommand('insertHTML', false, '<input type="checkbox">&nbsp;');
-                    } else if (text === '- ') {
+                    } else if (text.endsWith('[ ] ')) {
+                        document.execCommand('delete'); document.execCommand('delete'); document.execCommand('delete'); document.execCommand('delete');
+                        document.execCommand('insertHTML', false, '<input type="checkbox">&nbsp;');
+                    } else if (text.endsWith('- ')) {
                         document.execCommand('delete'); document.execCommand('delete');
                         document.execCommand('insertUnorderedList');
                     }
@@ -425,7 +420,6 @@
                 panX = data.panX || 0; panY = data.panY || 0; scale = data.scale || 1;
                 zIndexCounter = data.zIndexCounter || 10;
                 
-                // Load font preference
                 if (data.useComicSans !== undefined) {
                     useComicSans = data.useComicSans;
                     document.body.classList.toggle('comic-font', useComicSans);
