@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline Canvas Notes</title>
+    <link rel="icon" type="image/png" href="offline_canvas.png">
+    
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; font-family: sans-serif; background-color: #e0e0e0;
+        }
+
+        /* --- UI & Toolbar --- */
+        #toolbar-wrapper {
+            position: fixed; top: 15px; left: 15px; z-index: 10000;
+            display: flex; align-items: center; gap: 10px;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        #toolbar-wrapper.collapsed {
+            /* Slides left by its full width, leaving exactly 45px for the toggle button */
+            transform: translateX(calc(-100% + 45px));
+        }
+
+        #toolbar {
+            background: rgba(255, 255, 255, 0.95); padding: 10px 15px; 
+            border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: flex; gap: 10px; align-items: center; backdrop-filter: blur(5px);
+            flex-shrink: 0;
+        }
+
+        #toggle-btn {
+            width: 35px; height: 35px; border-radius: 8px; border: 1px solid #ccc;
+            background: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            cursor: pointer; font-weight: bold; flex-shrink: 0;
+        }
+        #toggle-btn:hover { background: #f0f0f0; }
+
+        button, input[type="number"] { padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; background: white; }
+        button:hover { background: #f0f0f0; }
+        input[type="number"] { width: 45px; cursor: text; }
+        .color-btn { width: 24px; height: 24px; border-radius: 50%; border: 1px solid #aaa; padding: 0; }
+        .divider { width: 1px; height: 20px; background: #ccc; margin: 0 2px; }
+
+        /* --- Canvas --- */
+        #viewport { width: 100vw; height: 100vh; cursor: grab; position: relative; overflow: hidden; }
+        #viewport:active { cursor: grabbing; }
+        #canvas {
+            width: 10000px; height: 10000px; position: absolute; top: -5000px; left: -5000px;
+            background-image: radial-gradient(#bbb 1px, transparent 1px); background-size: 30px 30px;
+            transform-origin: center center;
+        }
+
+        /* --- Notes --- */
+        .note {
+            position: absolute; background: #fff9b1; box-shadow: 3px 3px 10px rgba(0,0,0,0.2);
+            min-width: 200px; min-height: 100px; border-radius: 6px; display: flex; flex-direction: column;
+            transition: box-shadow 0.2s; resize: both; overflow: auto;
+        }
+        .note:focus-within { box-shadow: 5px 5px 15px rgba(0,0,0,0.3); }
+        .note.pinned { border: 2px solid #aaa; }
+        .note.pinned .note-header { background: rgba(0,0,0,0.02); cursor: default; }
+
+        .note-header {
+            height: 22px; background: rgba(0,0,0,0.08); border-top-left-radius: 6px; border-top-right-radius: 6px;
+            cursor: grab; display: flex; justify-content: space-between; align-items: center; padding: 2px 8px; user-select: none;
+        }
+        .note-header:active { cursor: grabbing; }
+        
+        .header-controls { display: flex; gap: 5px; }
+        .icon-btn { background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 0 2px; }
+        .icon-btn:hover { opacity: 0.7; }
+        .delete-btn { color: #888; font-weight: bold; font-size: 12px; transition: color 0.2s; }
+
+        .note-text { padding: 10px; outline: none; cursor: text; flex-grow: 1; min-height: 50px; line-height: 1.5; }
+        .note-text input[type="checkbox"] { cursor: pointer; transform: scale(1.2); margin-right: 6px; }
+
+        /* --- Minimap --- */
+        #minimap-container {
+            position: fixed; bottom: 15px; right: 15px; width: 200px; height: 200px; 
+            background: rgba(255,255,255,0.8); border: 2px solid #aaa; border-radius: 8px; 
+            z-index: 10000; overflow: hidden; pointer-events: none;
+        }
+        .minimap-note { position: absolute; background: #666; border-radius: 2px; }
+        #minimap-viewport { position: absolute; border: 2px solid #007bff; background: rgba(0, 123, 255, 0.1); box-sizing: border-box; }
+    </style>
+</head>
+<body>
+
+    <!-- Hidden File Input for Import -->
+    <input type="file" id="fileImport" accept=".json" style="display: none;" onchange="importNotes(event)">
+
+    <div id="toolbar-wrapper">
+        <div id="toolbar">
+            <button onclick="addNote()">➕ Note</button>
+            <div class="divider"></div>
+            
+            <label style="font-size: 14px;">Size:</label>
+            <input type="number" id="fontSizePicker" value="18" min="8" max="72" title="Font Size">
+            <span style="font-size: 12px; color: #666;">px</span>
+
+            <div class="divider"></div>
+            <button class="color-btn" style="background: #fff9b1;" onclick="setNextColor('#fff9b1')"></button>
+            <button class="color-btn" style="background: #b1ffc2;" onclick="setNextColor('#b1ffc2')"></button>
+            <button class="color-btn" style="background: #b1e0ff;" onclick="setNextColor('#b1e0ff')"></button>
+            <button class="color-btn" style="background: #ffb1e8;" onclick="setNextColor('#ffb1e8')"></button>
+
+            <div class="divider"></div>
+            <button onclick="document.getElementById('fileImport').click()">📂 Import</button>
+            <button onclick="exportNotes()">📤 Export</button>
+            <button onclick="clearBoard()">🗑️ Clear</button>
+        </div>
+        <button id="toggle-btn" onclick="toggleToolbar()">❮</button>
+    </div>
+
+    <div id="minimap-container"><div id="minimap-viewport"></div></div>
+    <div id="viewport"><div id="canvas"></div></div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const viewport = document.getElementById('viewport');
+        const fontSizePicker = document.getElementById('fontSizePicker');
+        
+        let scale = 1, panX = 0, panY = 0;
+        let isPanning = false, startPanX = 0, startPanY = 0;
+        let zIndexCounter = 10, spawnOffset = 0, nextNoteColor = '#fff9b1';
+        let draggedNote = null;
+
+        // Optimization: Debounce for saving during typing
+        function debounce(func, wait) {
+            let timeout;
+            return function(...args) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(this, args), wait);
+            };
+        }
+        const debouncedSave = debounce(() => { saveBoard(); updateMinimap(); }, 400);
+
+        function toggleToolbar() {
+            const wrapper = document.getElementById('toolbar-wrapper');
+            const btn = document.getElementById('toggle-btn');
+            wrapper.classList.toggle('collapsed');
+            btn.innerText = wrapper.classList.contains('collapsed') ? '❯' : '❮';
+        }
+
+        function setNextColor(color) { nextNoteColor = color; }
+
+        // --- Optimized Navigation (requestAnimationFrame) ---
+        let rAF_Transform;
+        function queueCanvasTransform() {
+            if (rAF_Transform) cancelAnimationFrame(rAF_Transform);
+            rAF_Transform = requestAnimationFrame(() => {
+                canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+                updateMinimap();
+            });
+        }
+
+        viewport.addEventListener('mousedown', (e) => {
+            if (e.target === viewport || e.target === canvas) {
+                isPanning = true; startPanX = e.clientX - panX; startPanY = e.clientY - panY;
+            }
+        });
+        
+        window.addEventListener('mouseup', () => { 
+            isPanning = false; 
+            if (draggedNote) { draggedNote = null; saveBoard(); } 
+        });
+
+        viewport.addEventListener('wheel', (e) => {
+            if (e.ctrlKey) e.preventDefault();
+            scale += (e.deltaY < 0 ? 0.05 : -0.05);
+            scale = Math.min(Math.max(0.2, scale), 3);
+            queueCanvasTransform();
+        }, { passive: false });
+
+        // --- Note Engine ---
+        function addNote(data = {}) {
+            spawnOffset = (spawnOffset + 30) % 300;
+            
+            const note = document.createElement('div');
+            note.className = 'note ' + (data.pinned ? 'pinned' : '');
+            note.style.left = data.x || `${5000 + spawnOffset}px`;
+            note.style.top = data.y || `${5000 + spawnOffset}px`;
+            if (data.width) note.style.width = data.width;
+            if (data.height) note.style.height = data.height;
+            note.style.backgroundColor = data.color || nextNoteColor;
+            note.style.zIndex = data.zIndex || ++zIndexCounter;
+
+            note.addEventListener('mousedown', () => { note.style.zIndex = ++zIndexCounter; });
+
+            const header = document.createElement('div');
+            header.className = 'note-header';
+            
+            const pinBtn = document.createElement('button');
+            pinBtn.className = 'icon-btn'; pinBtn.innerText = '📌';
+            pinBtn.title = 'Pin/Unpin Note';
+            pinBtn.onclick = (e) => {
+                e.stopPropagation(); note.classList.toggle('pinned'); saveBoard();
+            };
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'icon-btn delete-btn'; delBtn.innerText = '✕';
+            let confirmDelete = false;
+            
+            delBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (confirmDelete) { note.remove(); saveBoard(); updateMinimap(); } 
+                else {
+                    confirmDelete = true;
+                    delBtn.style.color = 'red'; delBtn.innerText = 'Sure?';
+                    setTimeout(() => { confirmDelete = false; delBtn.style.color = '#888'; delBtn.innerText = '✕'; }, 2500);
+                }
+            };
+
+            const controls = document.createElement('div'); controls.className = 'header-controls';
+            controls.appendChild(pinBtn); controls.appendChild(delBtn);
+            header.appendChild(document.createElement('div')); header.appendChild(controls);
+
+            header.addEventListener('mousedown', (e) => {
+                if (!note.classList.contains('pinned')) { draggedNote = note; note.style.zIndex = ++zIndexCounter; }
+            });
+
+            const content = document.createElement('div');
+            content.className = 'note-text'; content.contentEditable = true;
+            content.innerHTML = data.text || "Type here...<br><br><i>Hint: Type '[] ' for a checkbox!</i>";
+            content.style.fontSize = data.fontSize || (fontSizePicker.value + 'px');
+            
+            // Rich text commands
+            content.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
+                    e.preventDefault(); document.execCommand('backColor', false, 'yellow');
+                }
+            });
+
+            content.addEventListener('keyup', (e) => {
+                if (e.key === ' ') {
+                    const sel = window.getSelection();
+                    if (!sel.anchorNode || sel.anchorNode.nodeType !== Node.TEXT_NODE) return;
+                    const text = sel.anchorNode.textContent;
+                    if (text === '[] ') {
+                        document.execCommand('delete'); document.execCommand('delete'); document.execCommand('delete');
+                        document.execCommand('insertHTML', false, '<input type="checkbox">&nbsp;');
+                    } else if (text === '- ') {
+                        document.execCommand('delete'); document.execCommand('delete');
+                        document.execCommand('insertUnorderedList');
+                    }
+                }
+                debouncedSave(); // Fast typing optimized
+            });
+
+            content.addEventListener('change', (e) => {
+                if (e.target.type === 'checkbox') {
+                    if (e.target.checked) e.target.setAttribute('checked', 'checked');
+                    else e.target.removeAttribute('checked');
+                    saveBoard();
+                }
+            });
+
+            new ResizeObserver(() => { debouncedSave(); }).observe(note);
+
+            note.appendChild(header); note.appendChild(content);
+            canvas.appendChild(note); updateMinimap();
+        }
+
+        // --- Optimized Global Dragging ---
+        let rAF_Drag;
+        window.addEventListener('mousemove', (e) => {
+            if (isPanning) { 
+                panX = e.clientX - startPanX; panY = e.clientY - startPanY; queueCanvasTransform(); 
+            } else if (draggedNote) {
+                if (rAF_Drag) cancelAnimationFrame(rAF_Drag);
+                rAF_Drag = requestAnimationFrame(() => {
+                    const left = parseFloat(draggedNote.style.left);
+                    const top = parseFloat(draggedNote.style.top);
+                    draggedNote.style.left = `${left + (e.movementX / scale)}px`;
+                    draggedNote.style.top = `${top + (e.movementY / scale)}px`;
+                    updateMinimap();
+                });
+            }
+        });
+
+        // --- Minimap Render ---
+        function updateMinimap() {
+            document.querySelectorAll('.minimap-note').forEach(n => n.remove());
+            const mapScale = 200 / 10000;
+            
+            document.querySelectorAll('.note').forEach(note => {
+                const mapNote = document.createElement('div'); mapNote.className = 'minimap-note';
+                mapNote.style.left = `${parseFloat(note.style.left) * mapScale}px`;
+                mapNote.style.top = `${parseFloat(note.style.top) * mapScale}px`;
+                mapNote.style.width = `${Math.max(note.offsetWidth * mapScale, 3)}px`;
+                mapNote.style.height = `${Math.max(note.offsetHeight * mapScale, 3)}px`;
+                document.getElementById('minimap-container').appendChild(mapNote);
+            });
+
+            const vport = document.getElementById('minimap-viewport');
+            vport.style.width = `${(viewport.clientWidth / scale) * mapScale}px`;
+            vport.style.height = `${(viewport.clientHeight / scale) * mapScale}px`;
+            vport.style.left = `${(-panX / scale) * mapScale}px`;
+            vport.style.top = `${(-panY / scale) * mapScale}px`;
+        }
+
+        // --- Save, Load, Import, Export ---
+        function saveBoard() {
+            const notes = Array.from(document.querySelectorAll('.note')).map(note => {
+                const textEl = note.querySelector('.note-text');
+                return {
+                    x: note.style.left, y: note.style.top, width: note.style.width, height: note.style.height,
+                    text: textEl.innerHTML, color: note.style.backgroundColor, fontSize: textEl.style.fontSize,
+                    zIndex: note.style.zIndex, pinned: note.classList.contains('pinned')
+                };
+            });
+            
+            const dataStr = JSON.stringify({ notes, panX, panY, scale, zIndexCounter });
+            
+            // Storage Safeguard: Check if approaching 5MB limit
+            const sizeMB = (dataStr.length * 2) / (1024 * 1024);
+            if (sizeMB > 4.5) alert("Warning: Data is approaching the browser limit. Please Export your notes to avoid data loss.");
+            
+            localStorage.setItem('canvasNotesData', dataStr);
+        }
+
+        function loadBoard() {
+            const saved = localStorage.getItem('canvasNotesData');
+            if (saved) {
+                const data = JSON.parse(saved);
+                panX = data.panX || 0; panY = data.panY || 0; scale = data.scale || 1;
+                zIndexCounter = data.zIndexCounter || 10;
+                data.notes.forEach(n => addNote(n));
+                queueCanvasTransform();
+            }
+        }
+
+        function exportNotes() {
+            saveBoard();
+            const dataStr = localStorage.getItem('canvasNotesData');
+            if (!dataStr) return alert("Nothing to export!");
+            const blob = new Blob([dataStr], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url; a.download = `canvas_backup_${new Date().toISOString().slice(0,10)}.json`;
+            a.click(); URL.revokeObjectURL(url);
+        }
+
+        function importNotes(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (data && data.notes) {
+                        if (confirm("This will overwrite your current canvas. Proceed?")) {
+                            localStorage.setItem('canvasNotesData', e.target.result);
+                            document.querySelectorAll('.note').forEach(n => n.remove());
+                            loadBoard();
+                        }
+                    } else alert("Invalid file format");
+                } catch (err) { alert("Error reading file."); }
+                event.target.value = ''; // Reset input
+            };
+            reader.readAsText(file);
+        }
+
+        function clearBoard() {
+            if (confirm("Clear all notes?")) {
+                document.querySelectorAll('.note').forEach(n => n.remove());
+                localStorage.removeItem('canvasNotesData');
+                panX = 0; panY = 0; scale = 1; spawnOffset = 0; queueCanvasTransform();
+            }
+        }
+
+        window.onload = loadBoard;
+        window.addEventListener('resize', updateMinimap);
+    </script>
+</body>
+</html>
