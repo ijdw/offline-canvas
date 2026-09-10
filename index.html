@@ -7,7 +7,6 @@
     <link rel="icon" type="image/png" href="offline_canvas.png">
     
     <style>
-        /* Default to clean geometric font */
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
             overflow: hidden; background-color: #e0e0e0;
@@ -15,12 +14,10 @@
             transition: font-family 0.2s;
         }
 
-        /* Comic Sans Toggle Class */
         body.comic-font {
             font-family: 'Comic Sans MS', 'Comic Sans', 'Marker Felt', cursive !important;
         }
 
-        /* --- UI & Toolbar --- */
         #toolbar-wrapper {
             position: fixed; top: 15px; left: 15px; z-index: 10000;
             display: flex; align-items: flex-start; gap: 10px;
@@ -48,7 +45,6 @@
         input[type="number"] { width: 45px; cursor: text; }
         .divider { width: 1px; height: 20px; background: #ccc; margin: 0 2px; }
 
-        /* --- 7x7 Color Popup --- */
         #color-btn { display: flex; align-items: center; gap: 6px; font-weight: bold; }
         #current-color-indicator { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #aaa; background: #fff9b1; }
         
@@ -63,7 +59,6 @@
         }
         .palette-swatch:hover { transform: scale(1.1); border-color: rgba(0,0,0,0.5); }
 
-        /* --- Canvas --- */
         #viewport { width: 100vw; height: 100vh; cursor: grab; position: relative; overflow: hidden; }
         #viewport:active { cursor: grabbing; }
         #canvas {
@@ -72,7 +67,6 @@
             transform-origin: center center;
         }
 
-        /* --- Notes --- */
         .note {
             position: absolute; background: #fff9b1; box-shadow: 3px 3px 10px rgba(0,0,0,0.15);
             min-width: 200px; min-height: 100px; border-radius: 6px; display: flex; flex-direction: column;
@@ -81,22 +75,18 @@
         }
         .note::-webkit-scrollbar { width: 0px; height: 0px; background: transparent; }
         
-        /* The Active Note glow */
         .note.active-note { box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.5), 5px 5px 20px rgba(0,0,0,0.2); }
         .note.pinned { border: 2px solid #aaa; }
 
-        /* Invisible Header */
         .note-header {
             height: 24px; background: transparent; border-top-left-radius: 6px; border-top-right-radius: 6px;
             cursor: grab; display: flex; justify-content: space-between; align-items: center; padding: 4px 8px 0 8px; user-select: none;
         }
         .note-header:active { cursor: grabbing; }
         
-        /* Hide controls until hovered */
         .note-header > div, .note-header > button { opacity: 0; transition: opacity 0.2s ease; }
         .note:hover .note-header > div, .note:hover .note-header > button { opacity: 1; }
         
-        /* Failsafe for mobile/touch screens where hover doesn't exist */
         @media (pointer: coarse) {
             .note-header > div, .note-header > button { opacity: 0.6; }
         }
@@ -111,7 +101,6 @@
         .note-text { font-family: inherit; padding: 5px 12px 12px 12px; outline: none; cursor: text; flex-grow: 1; min-height: 50px; line-height: 1.5; }
         .note-text input[type="checkbox"] { cursor: pointer; transform: scale(1.2); margin-right: 6px; }
 
-        /* --- Minimap --- */
         #minimap-container {
             position: fixed; bottom: 15px; right: 15px; width: 200px; height: 200px; 
             background: rgba(255,255,255,0.8); border: 2px solid #aaa; border-radius: 8px; 
@@ -148,8 +137,6 @@
                 <button onclick="exportNotes()">📤 Export</button>
                 <button onclick="clearBoard()">🗑️ Clear</button>
             </div>
-            
-            <!-- The 7x7 Color Grid -->
             <div id="palette-popup"></div>
         </div>
         <button id="toggle-btn" onclick="toggleToolbar()">❮</button>
@@ -321,24 +308,54 @@
                 }
             });
 
-            // UPDATED: More robust Markdown scanning!
+            // BULLETPROOF DOM MUTATION MARKDOWN SCANNER
             content.addEventListener('keyup', (e) => {
-                if (e.key === ' ') {
+                if (e.key === ' ' || e.code === 'Space' || e.keyCode === 32) {
                     const sel = window.getSelection();
                     if (!sel.anchorNode || sel.anchorNode.nodeType !== Node.TEXT_NODE) return;
                     
-                    // Look directly behind the cursor
                     const text = sel.anchorNode.textContent.slice(0, sel.anchorOffset);
+                    const normalizedText = text.replace(/\u00A0/g, ' '); // Catch hidden non-breaking spaces
                     
-                    if (text.endsWith('[] ')) {
-                        document.execCommand('delete'); document.execCommand('delete'); document.execCommand('delete');
-                        document.execCommand('insertHTML', false, '<input type="checkbox">&nbsp;');
-                    } else if (text.endsWith('[ ] ')) {
-                        document.execCommand('delete'); document.execCommand('delete'); document.execCommand('delete'); document.execCommand('delete');
-                        document.execCommand('insertHTML', false, '<input type="checkbox">&nbsp;');
-                    } else if (text.endsWith('- ')) {
-                        document.execCommand('delete'); document.execCommand('delete');
-                        document.execCommand('insertUnorderedList');
+                    let matchLen = 0;
+                    let isCheckbox = false;
+                    let isBullet = false;
+
+                    if (normalizedText.endsWith('[] ')) { matchLen = 3; isCheckbox = true; } 
+                    else if (normalizedText.endsWith('[ ] ')) { matchLen = 4; isCheckbox = true; } 
+                    else if (normalizedText.endsWith('- ')) { matchLen = 2; isBullet = true; }
+
+                    if (matchLen > 0) {
+                        const range = sel.getRangeAt(0);
+                        
+                        // Physically highlight the target text
+                        range.setStart(sel.anchorNode, sel.anchorOffset - matchLen);
+                        
+                        // Directly delete it from the DOM
+                        range.deleteContents();
+
+                        if (isCheckbox) {
+                            // Create the checkbox and a space element natively
+                            const frag = document.createDocumentFragment();
+                            const cb = document.createElement('input');
+                            cb.type = 'checkbox';
+                            const space = document.createTextNode('\u00A0'); // Secure space
+                            
+                            frag.appendChild(cb);
+                            frag.appendChild(space);
+                            
+                            // Inject into the text box
+                            range.insertNode(frag);
+                            
+                            // Safely move the cursor past the new checkbox and space
+                            range.setStartAfter(space);
+                            range.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(range);
+                        } else if (isBullet) {
+                            // Fallback to native unordered list command after deleting the dash
+                            document.execCommand('insertUnorderedList');
+                        }
                     }
                 }
                 debouncedSave(); 
